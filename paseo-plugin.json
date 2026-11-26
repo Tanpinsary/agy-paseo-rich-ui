@@ -1,0 +1,7 @@
+{
+  "id": "agy-rich-ui",
+  "name": "Antigravity Rich UI",
+  "description": "Composer questions, LaTeX and interactive widgets for Antigravity sessions.",
+  "requirements": { "paseo": ">=0.17.3 <0.18.0" },
+  "build": [["npm", "ci", "--omit=dev", "--legacy-peer-deps", "--ignore-scripts"]]
+}
