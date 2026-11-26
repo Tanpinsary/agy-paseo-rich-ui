@@ -1,28 +1,61 @@
 import MarkdownIt from "markdown-it";
-import texmath from "markdown-it-texmath";
-import katex from "katex";
+import { tex } from "@mdit/plugin-tex";
 
 const md = new MarkdownIt({ html: false, breaks: true });
-md.use(texmath, { engine: katex, delimiters: ["dollars", "brackets"] });
-const renderMath = (tokens, i) => {
-  const t = tokens[i];
-  return katex.renderToString(t.content, {
-    output: "mathml",
-    trust: false,
-    throwOnError: false,
-    displayMode: t.block || t.type === "math_inline_double",
-    maxSize: 20,
-    maxExpand: 500,
-  });
-};
-for (const name of [
-  "math_inline",
-  "math_inline_double",
-  "math_block",
-  "math_block_eqno",
-]) {
-  md.renderer.rules[name] = renderMath;
+function mathPlaceholder(source, display) {
+  const body = md.utils.escapeHtml(source);
+  const mode = display ? "display" : "inline";
+  const delimited = display ? "\\[" + body + "\\]" : "\\(" + body + "\\)";
+  return '<span data-agy-tex="' + mode + '">' + delimited + "</span>";
 }
+md.use(tex, { delimiters: "all", render: mathPlaceholder });
+
+// Existing transcripts can have an inline formula touching an English word.
+// Keep that notation while excluding digit-adjacent currency and escaped dollars.
+const adjacentInline = /\$((?:\\[^\n]|[^$\\\n])+?)\$/y;
+md.inline.ruler.before(
+  "math_inline_dollar",
+  "agy_adjacent_dollar",
+  (state, silent) => {
+    const start = state.pos;
+    if (state.src[start] !== "$" || /[\d$\\]/.test(state.src[start - 1] ?? ""))
+      return false;
+    adjacentInline.lastIndex = start;
+    const match = adjacentInline.exec(state.src);
+    if (!match || /^\s|\s$/.test(match[1])) return false;
+    const end = adjacentInline.lastIndex;
+    const next = state.src[end] ?? "";
+    if (
+      end > state.posMax ||
+      /[\d$]/.test(next) ||
+      !/[a-z_]/i.test((state.src[start - 1] ?? "") + next)
+    )
+      return false;
+    if (!silent) state.push("math_inline", "math", 0).content = match[1];
+    state.pos = end;
+    return true;
+  },
+);
+
+// Let Markdown handle code and escapes before MathJax sees the reply. These
+// forms can also occur in prose, outside a dollar- or bracket-delimited block.
+const extraTex =
+  /\\(?:eqref|ref)\{[^{}\n]+\}|\\begin\{(equation\*?|align\*?|alignat\*?|gather\*?|multline\*?|flalign\*?)\}[\s\S]*?\\end\{\1\}|\$\$([^\n]+?)\$\$|\\\[([^\n]+?)\\\]/y;
+md.inline.ruler.before("escape", "agy_tex", (state, silent) => {
+  extraTex.lastIndex = state.pos;
+  const match = extraTex.exec(state.src);
+  if (!match || extraTex.lastIndex > state.posMax) return false;
+  const end = extraTex.lastIndex;
+  if (!silent) {
+    const token = state.push("math_extra", "", 0);
+    token.content = match[2] ?? match[3] ?? match[0];
+    token.block = !/^\\(?:eqref|ref)\{/.test(match[0]);
+  }
+  state.pos = end;
+  return true;
+});
+md.renderer.rules.math_extra = (tokens, i) =>
+  mathPlaceholder(tokens[i].content, tokens[i].block);
 // Keep remote resources out of rich text. Normal Markdown blocks use Paseo's renderer.
 md.renderer.rules.image = (tokens, i) => md.utils.escapeHtml(tokens[i].content);
 md.validateLink = (href) => /^https?:\/\//i.test(href);
@@ -82,7 +115,7 @@ export function richParts(source) {
         raw,
         html:
           info === "math"
-            ? renderMath([t], 0)
+            ? mathPlaceholder(t.content, true)
             : md.renderer.render(group, md.options, {}),
       });
     line = stop;

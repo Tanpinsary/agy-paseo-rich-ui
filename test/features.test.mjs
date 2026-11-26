@@ -66,12 +66,13 @@ test("one answer reaches only its owning session", async () => {
 test("render screenshot notation, bracket math and display math without changing currency or code", () => {
   for (const source of [
     String.raw`预算 $> 64\text{k}$ 的难例`,
+    "word$x$word",
     String.raw`行内 \(a^2\)`,
     String.raw`\[\frac{a}{b}\]`,
     "$$\na+b\n$$",
     "\x60\x60\x60math\nx^2\n\x60\x60\x60",
   ]) {
-    assert.match(richParts(source)[0].html, /<math /);
+    assert.match(richParts(source)[0].html, /data-agy-tex=/);
   }
   for (const source of [
     "$20 to $35",
